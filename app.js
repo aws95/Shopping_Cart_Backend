@@ -7,6 +7,7 @@ const multer = require('multer');
 const GridFsStorage = require('multer-gridfs-storage');
 const Grid = require('gridfs-stream');
 const methodOverride = require('method-override');
+const Product = require('./models/Product');
 
 const app = express();
 
@@ -20,11 +21,12 @@ const mongoURI = 'mongodb+srv://oussema:ouss123@cluster0-4zuba.mongodb.net/test?
 const promise = mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true, useCreateIndex: true });
 const conn = mongoose.connection;
 
+
 // Init gfs
 let gfs;
 conn.once('open', () => {
     // Init stream
-    gfs = Grid(conn, mongoose.mongo);
+    gfs = new Grid(conn.db, mongoose.mongo);
     gfs.collection('uploads');
     console.log("connection made successfully");
 });
@@ -52,6 +54,8 @@ const storage = new GridFsStorage({
 });
 const upload = multer({ storage });
 
+
+
 // @route GET /
 // @desc Loads form
 app.get('/', (req, res) => {
@@ -60,12 +64,89 @@ app.get('/', (req, res) => {
 
 // @route POST /upload
 // @desc  Uploads file to DB
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', upload.single('file'), async (req, res) => {
     //res.json({ file: req.file.filename}); 
-    console.log(req.body);
-    res.redirect('/');
+    const product = new Product({
+        product: req.body.product,
+        price: req.body.price,
+        qty: req.body.qty,
+        sizes: req.body.sizes,
+        stock: req.body.stock,
+        img: req.file.filename
+    });
+    try {
+        let savedProduct = await product;
+        savedProduct.save();
+        res.redirect('/');
+        res.json(savedProduct);
+
+    }
+    catch (err) {
+        res.json({ message: err });
+    }
 });
 
+//@route GET /files
+// @desc  Display all files in JSON
+app.get('/files', (req, res) => {
+    gfs.files.find().toArray((err, files) => {
+        // Check if files
+        if (!files || files.length === 0) {
+            return res.status(404).json({
+                err: 'No files exist'
+            });
+        }
+
+        // Files exist
+        return res.json(files);
+    });
+});
+
+// @route GET /image/:filename
+// @desc Display Image
+app.get('/image/:filename', (req, res) => {
+    gfs.files.findOne({ filename: req.params.filename }, (err, file) => {
+      // Check if file
+      if (!file || file.length === 0) {
+        return res.status(404).json({
+          err: 'No file exists'
+        });
+      }
+  
+      // Check if image
+      if (file.contentType === 'image/jpeg' || file.contentType === 'image/png') {
+        // Read output to browser
+        const readstream = gfs.createReadStream(file.filename);
+        readstream.pipe(res);
+      } else {
+        res.status(404).json({
+          err: 'Not an image'
+        });
+      }
+    });
+  });
+
+// @route GET /products/
+  app.get('/products', async (req, res) => {
+    try {
+        let products = await Product.find();
+        res.json(products);
+    }
+    catch (err) {
+        res.json({message: err});
+    }
+});
+
+app.get('/products/:id', async (req, res) => {
+ 
+    try {
+        let product = await Product.findById(req.params.id);
+        res.json(product);
+    }
+    catch (err) {
+        res.json({message: err});
+    }
+});
 const port = 5000;
 
 app.listen(port, () => console.log(`Server started on port ${port}`));
